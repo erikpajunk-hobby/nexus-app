@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#07090F" />
+    <title>NEXUS — Protocolo Cognitivo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body, #root { height: 100%; background: #07090F; }
+      body { font-family: 'Syne', sans-serif; -webkit-tap-highlight-color: transparent; }
+      button { font-family: 'Syne', sans-serif; cursor: pointer; }
+      button:active { transform: scale(0.95); }
+      input { font-family: 'Syne', sans-serif; outline: none; }
+      ::-webkit-scrollbar { width: 3px; }
+      ::-webkit-scrollbar-track { background: #0C1520; }
+      ::-webkit-scrollbar-thumb { background: #2A4060; border-radius: 2px; }
+      @keyframes fadeIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+      @keyframes slideUp { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes pop { 0%{transform:scale(1.5);opacity:0;} 30%{transform:scale(1);opacity:1;} 85%{opacity:1;} 100%{opacity:0;transform:scale(0.85);} }
+      .fade { animation: fadeIn 0.35s ease both; }
+      .slide { animation: slideUp 0.4s ease both; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
