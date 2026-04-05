@@ -1,6 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
 import { Bar, Num } from '../components/UI.jsx'
 
+/* ── Responsive scale hook ── */
+function useGameScale() {
+  const [scale, setScale] = useState(() => Math.min(window.innerWidth, 360) / 360)
+  useEffect(() => {
+    const handler = () => setScale(Math.min(window.innerWidth, 360) / 360)
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
+  return scale
+}
+const sp = (v, s) => Math.round(v * s) // scaled pixel
+
 /* ════════════════════════════════════════════
    CAMPO VISUAL (UFOV-inspired)
 ════════════════════════════════════════════ */
@@ -12,13 +24,18 @@ const getCoords = (idx, r) => {
 }
 
 export function UFOVGame({ config, onComplete }) {
+  const s = useGameScale()
+  const arenaSize = sp(260, s)
+  const CX = arenaSize / 2; const CY = arenaSize / 2
+  const initRadius = sp(82, s)
+
   const [phase, setPhase] = useState('fixation')
   const [cStim, setCStim] = useState(null); const [pStim, setPStim] = useState(null)
   const [cAns, setCAns] = useState(null); const [pAns, setPAns] = useState(null)
   const [correct, setCorrect] = useState(0); const [total, setTotal] = useState(0)
-  const [displayMs, setDisplayMs] = useState(600); const [radius, setRadius] = useState(82)
+  const [displayMs, setDisplayMs] = useState(600); const [radius, setRadius] = useState(initRadius)
   const [fb, setFb] = useState(null); const [timeLeft, setTimeLeft] = useState(config.duration); const [done, setDone] = useState(false)
-  const R = useRef({ correct:0, total:0, displayMs:600, radius:82, stim:{c:0,p:0}, cAns:null, pAns:null, awaiting:false, done:false })
+  const R = useRef({ correct:0, total:0, displayMs:600, radius:initRadius, stim:{c:0,p:0}, cAns:null, pAns:null, awaiting:false, done:false })
   const respTimer = useRef(null); const trialTimer = useRef(null)
   const evalRef = useRef(null); const runRef = useRef(null)
 
@@ -28,7 +45,13 @@ export function UFOVGame({ config, onComplete }) {
       if (!r.awaiting) return; r.awaiting = false; clearTimeout(respTimer.current)
       const ok = r.cAns === r.stim.c && r.pAns === r.stim.p
       r.total++; setTotal(r.total)
-      if (ok) { r.correct++; setCorrect(r.correct); if (r.correct % 3 === 0) { r.displayMs = Math.max(160, r.displayMs-55); setDisplayMs(r.displayMs); r.radius = Math.min(128, r.radius+10); setRadius(r.radius) } }
+      if (ok) {
+        r.correct++; setCorrect(r.correct)
+        if (r.correct % 3 === 0) {
+          r.displayMs = Math.max(160, r.displayMs-55); setDisplayMs(r.displayMs)
+          r.radius = Math.min(sp(128, s), r.radius + sp(10, s)); setRadius(r.radius)
+        }
+      }
       setFb(ok ? 'hit' : 'miss'); setPhase('feedback')
       trialTimer.current = setTimeout(() => runRef.current(), 380)
     }
@@ -64,36 +87,37 @@ export function UFOVGame({ config, onComplete }) {
   }, [done])
 
   const pct = ((config.duration - timeLeft) / config.duration) * 100
-  const isResp = phase === 'response'; const CX=130, CY=130
+  const isResp = phase === 'response'
+  const symBtn = sp(54, s); const periBtn = sp(36, s); const centerBtn = sp(52, s)
   const hint = phase==='fixation' ? 'Foque no +' : phase==='display' ? '👁 OBSERVE!' : phase==='response' ? 'Clique símbolo + posição' : fb==='hit' ? '✓' : '✗'
 
   return (
-    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:12 }}>
+    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:sp(12,s) }}>
       <Bar pct={pct} color={config.color} timeLeft={timeLeft} />
-      <div style={{ display:'flex', gap:16, alignItems:'flex-end' }}>
+      <div style={{ display:'flex', gap:sp(16,s), alignItems:'flex-end' }}>
         <Num label="Corretos" value={correct} color={config.color} />
         <Num label="Total" value={total} color="#5B7A9A" />
         <div style={{ textAlign:'center' }}>
-          <div style={{ fontSize:18, fontWeight:800, color:'#FCD34D', lineHeight:1 }}>{displayMs}</div>
+          <div style={{ fontSize:sp(18,s), fontWeight:800, color:'#FCD34D', lineHeight:1 }}>{displayMs}</div>
           <div style={{ fontSize:7, color:'#3A5470', fontFamily:'JetBrains Mono', letterSpacing:1 }}>FLASH MS</div>
         </div>
       </div>
-      <div style={{ display:'flex', gap:8 }}>
+      <div style={{ display:'flex', gap:sp(8,s) }}>
         {SYMBOLS.map((sym, idx) => (
-          <button key={idx} onClick={() => handleC(idx)} style={{ width:54, height:54, borderRadius:13, background: cAns===idx ? `${config.color}30` : phase==='display'&&cStim===idx ? `${config.color}18` : '#0C1520', border:`2px solid ${cAns===idx ? config.color : phase==='display'&&cStim===idx ? config.color : '#1A2A3A'}`, color: cAns===idx ? config.color : isResp ? '#708090' : '#2A3A4A', fontSize:22, transition:'all 0.12s' }}>{sym}</button>
+          <button key={idx} onClick={() => handleC(idx)} style={{ width:symBtn, height:symBtn, borderRadius:sp(13,s), background: cAns===idx ? `${config.color}30` : phase==='display'&&cStim===idx ? `${config.color}18` : '#0C1520', border:`2px solid ${cAns===idx ? config.color : phase==='display'&&cStim===idx ? config.color : '#1A2A3A'}`, color: cAns===idx ? config.color : isResp ? '#708090' : '#2A3A4A', fontSize:sp(22,s), transition:'all 0.12s' }}>{sym}</button>
         ))}
       </div>
-      <div style={{ position:'relative', width:260, height:260 }}>
-        <div style={{ position:'absolute', width:radius*2+40, height:radius*2+40, borderRadius:'50%', border:`1px solid ${config.color}14`, left:CX-radius-20, top:CY-radius-20, pointerEvents:'none', transition:'all 0.6s' }} />
+      <div style={{ position:'relative', width:arenaSize, height:arenaSize }}>
+        <div style={{ position:'absolute', width:radius*2+sp(40,s), height:radius*2+sp(40,s), borderRadius:'50%', border:`1px solid ${config.color}14`, left:CX-radius-sp(20,s), top:CY-radius-sp(20,s), pointerEvents:'none', transition:'all 0.6s' }} />
         {Array(N_POS).fill(null).map((_, idx) => {
           const { x, y } = getCoords(idx, radius); const isActive=phase==='display'&&pStim===idx; const isSel=pAns===idx
-          return <button key={idx} onClick={() => handleP(idx)} style={{ position:'absolute', left:CX+x-18, top:CY+y-18, width:36, height:36, borderRadius:'50%', background:isActive?config.color:isSel?`${config.color}30`:'#0C1520', border:`2px solid ${isActive||isSel?config.color:'#1A2A3A'}`, boxShadow:isActive?`0 0 20px ${config.color}`:'none', transition:'all 0.08s' }} />
+          return <button key={idx} onClick={() => handleP(idx)} style={{ position:'absolute', left:CX+x-periBtn/2, top:CY+y-periBtn/2, width:periBtn, height:periBtn, borderRadius:'50%', background:isActive?config.color:isSel?`${config.color}30`:'#0C1520', border:`2px solid ${isActive||isSel?config.color:'#1A2A3A'}`, boxShadow:isActive?`0 0 20px ${config.color}`:'none', transition:'all 0.08s' }} />
         })}
-        <div style={{ position:'absolute', left:CX-26, top:CY-26, width:52, height:52, borderRadius:13, background:phase==='display'?`${config.color}20`:'#0C1520', border:`2px solid ${phase==='display'?config.color:'#1A2A3A'}`, display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.1s', userSelect:'none' }}>
-          <span style={{ fontSize:22, color:config.color, fontWeight:800 }}>{phase==='display'&&cStim!==null?SYMBOLS[cStim]:phase==='response'?'?':'+'}</span>
+        <div style={{ position:'absolute', left:CX-centerBtn/2, top:CY-centerBtn/2, width:centerBtn, height:centerBtn, borderRadius:sp(13,s), background:phase==='display'?`${config.color}20`:'#0C1520', border:`2px solid ${phase==='display'?config.color:'#1A2A3A'}`, display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.1s', userSelect:'none' }}>
+          <span style={{ fontSize:sp(22,s), color:config.color, fontWeight:800 }}>{phase==='display'&&cStim!==null?SYMBOLS[cStim]:phase==='response'?'?':'+'}</span>
         </div>
       </div>
-      <p style={{ color:phase==='response'?config.color:'#3A5470', fontSize:10, fontFamily:'JetBrains Mono', textAlign:'center', transition:'color 0.3s' }}>{hint}</p>
+      <p style={{ color:phase==='response'?config.color:'#3A5470', fontSize:sp(10,s), fontFamily:'JetBrains Mono', textAlign:'center', transition:'color 0.3s' }}>{hint}</p>
     </div>
   )
 }
@@ -105,6 +129,9 @@ const NBACK_LETTERS = ['A','B','C','D','E','F','G','H']
 const N = 2
 
 export function DualNBackGame({ config, onComplete }) {
+  const s = useGameScale()
+  const cellSize = sp(66, s)
+
   const [activeCell, setActiveCell] = useState(null); const [activeLetter, setActiveLetter] = useState(null)
   const [posHits, setPosHits] = useState(0); const [letHits, setLetHits] = useState(0)
   const [posMisses, setPosMisses] = useState(0); const [letMisses, setLetMisses] = useState(0)
@@ -160,32 +187,32 @@ export function DualNBackGame({ config, onComplete }) {
 
   const pct = ((config.duration-timeLeft)/config.duration)*100
   return (
-    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:12 }}>
+    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:sp(12,s) }}>
       <Bar pct={pct} color={config.color} timeLeft={timeLeft} />
-      <div style={{ display:'flex', gap:6, padding:'8px 12px', background:'#0C1520', borderRadius:12, border:'1px solid #1A2A3A' }}>
-        <div style={{ paddingRight:10, borderRight:'1px solid #1A2A3A' }}>
+      <div style={{ display:'flex', gap:6, padding:`${sp(8,s)}px ${sp(12,s)}px`, background:'#0C1520', borderRadius:12, border:'1px solid #1A2A3A' }}>
+        <div style={{ paddingRight:sp(10,s), borderRight:'1px solid #1A2A3A' }}>
           <div style={{ fontSize:8, color:config.color, fontFamily:'JetBrains Mono', letterSpacing:1.5, marginBottom:4 }}>POSIÇÃO</div>
-          <div style={{ display:'flex', gap:8 }}><Num label="Hit" value={posHits} color={config.color} small /><Num label="Miss" value={posMisses} color="#EF4444" small /><Num label="FA" value={posFa} color="#F59E0B" small /></div>
+          <div style={{ display:'flex', gap:sp(8,s) }}><Num label="Hit" value={posHits} color={config.color} small /><Num label="Miss" value={posMisses} color="#EF4444" small /><Num label="FA" value={posFa} color="#F59E0B" small /></div>
         </div>
-        <div style={{ paddingLeft:10 }}>
+        <div style={{ paddingLeft:sp(10,s) }}>
           <div style={{ fontSize:8, color:'#F59E0B', fontFamily:'JetBrains Mono', letterSpacing:1.5, marginBottom:4 }}>LETRA</div>
-          <div style={{ display:'flex', gap:8 }}><Num label="Hit" value={letHits} color="#F59E0B" small /><Num label="Miss" value={letMisses} color="#EF4444" small /><Num label="FA" value={letFa} color="#F59E0B" small /></div>
+          <div style={{ display:'flex', gap:sp(8,s) }}><Num label="Hit" value={letHits} color="#F59E0B" small /><Num label="Miss" value={letMisses} color="#EF4444" small /><Num label="FA" value={letFa} color="#F59E0B" small /></div>
         </div>
       </div>
-      <div style={{ width:80, height:56, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', background:activeLetter?`${config.color}15`:'#0C1520', border:`2px solid ${activeLetter?config.color:'#1A2A3A'}`, transition:'all 0.18s' }}>
-        <span style={{ fontSize:30, fontWeight:800, color:activeLetter?config.color:'#1A2A3A' }}>{activeLetter||'—'}</span>
+      <div style={{ width:sp(80,s), height:sp(56,s), borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', background:activeLetter?`${config.color}15`:'#0C1520', border:`2px solid ${activeLetter?config.color:'#1A2A3A'}`, transition:'all 0.18s' }}>
+        <span style={{ fontSize:sp(30,s), fontWeight:800, color:activeLetter?config.color:'#1A2A3A' }}>{activeLetter||'—'}</span>
       </div>
-      <p style={{ color:'#3A5470', fontSize:9, fontFamily:'JetBrains Mono' }}>Rodada {stepCount} • compare com {N} passos atrás</p>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 66px)', gap:7 }}>
+      <p style={{ color:'#3A5470', fontSize:sp(9,s), fontFamily:'JetBrains Mono' }}>Rodada {stepCount} • compare com {N} passos atrás</p>
+      <div style={{ display:'grid', gridTemplateColumns:`repeat(3, ${cellSize}px)`, gap:sp(7,s) }}>
         {Array(9).fill(null).map((_, i) => (
-          <div key={i} style={{ height:66, borderRadius:12, background:activeCell===i?`${config.color}20`:'#0C1520', border:`2px solid ${activeCell===i?config.color:'#1A2A3A'}`, boxShadow:activeCell===i?`0 0 14px ${config.color}28`:'none', transition:'all 0.18s' }} />
+          <div key={i} style={{ height:cellSize, borderRadius:sp(12,s), background:activeCell===i?`${config.color}20`:'#0C1520', border:`2px solid ${activeCell===i?config.color:'#1A2A3A'}`, boxShadow:activeCell===i?`0 0 14px ${config.color}28`:'none', transition:'all 0.18s' }} />
         ))}
       </div>
-      <div style={{ display:'flex', gap:10 }}>
+      <div style={{ display:'flex', gap:sp(10,s) }}>
         {[{label:'MATCH',sub:'POSIÇÃO',fb:posFb,color:config.color,onClick:handlePosMatch},{label:'MATCH',sub:'LETRA',fb:letFb,color:'#F59E0B',onClick:handleLetMatch}].map(btn => (
-          <button key={btn.sub} onClick={btn.onClick} style={{ padding:'11px 20px', borderRadius:12, transition:'all 0.15s', background:btn.fb==='hit'?'#34D39918':btn.fb==='miss'?'#EF444418':`${btn.color}10`, border:`2px solid ${btn.fb==='hit'?'#34D399':btn.fb==='miss'?'#EF4444':btn.color}50`, color:btn.fb==='hit'?'#34D399':btn.fb==='miss'?'#EF4444':btn.color, display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
-            <span style={{ fontSize:12, fontWeight:800, letterSpacing:2 }}>{btn.fb==='hit'?'✓':btn.fb==='miss'?'✗':btn.label}</span>
-            <span style={{ fontSize:8, fontFamily:'JetBrains Mono', letterSpacing:1.5, opacity:0.7 }}>{btn.sub}</span>
+          <button key={btn.sub} onClick={btn.onClick} style={{ padding:`${sp(11,s)}px ${sp(20,s)}px`, borderRadius:12, transition:'all 0.15s', background:btn.fb==='hit'?'#34D39918':btn.fb==='miss'?'#EF444418':`${btn.color}10`, border:`2px solid ${btn.fb==='hit'?'#34D399':btn.fb==='miss'?'#EF4444':btn.color}50`, color:btn.fb==='hit'?'#34D399':btn.fb==='miss'?'#EF4444':btn.color, display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+            <span style={{ fontSize:sp(12,s), fontWeight:800, letterSpacing:2 }}>{btn.fb==='hit'?'✓':btn.fb==='miss'?'✗':btn.label}</span>
+            <span style={{ fontSize:sp(8,s), fontFamily:'JetBrains Mono', letterSpacing:1.5, opacity:0.7 }}>{btn.sub}</span>
           </button>
         ))}
       </div>
@@ -199,6 +226,9 @@ export function DualNBackGame({ config, onComplete }) {
 const SC = [{bg:'#EF4444',dim:'#280C0C',name:'VERMELHO'},{bg:'#3B82F6',dim:'#0C1835',name:'AZUL'},{bg:'#22C55E',dim:'#0A2415',name:'VERDE'},{bg:'#EAB308',dim:'#271E04',name:'AMARELO'}]
 
 export function SequenceGame({ config, onComplete }) {
+  const s = useGameScale()
+  const btnSize = sp(138, s)
+
   const [activeBtn,setActiveBtn]=useState(null); const [phase,setPhase]=useState('showing')
   const [lives,setLives]=useState(3); const [status,setStatus]=useState('Preparando...')
   const [t,setT]=useState(config.duration); const [done,setDone]=useState(false)
@@ -216,7 +246,7 @@ export function SequenceGame({ config, onComplete }) {
       setTimeout(next, 500)
     }
     playRef.current=play
-    const s=[Math.floor(Math.random()*4)]; seqR.current=s; play(s)
+    const sq=[Math.floor(Math.random()*4)]; seqR.current=sq; play(sq)
     const timer=setInterval(() => { setT(prev => { if (prev<=1) { clearInterval(timer); doneRef.current=true; setDone(true); return 0 } return prev-1 }) }, 1000)
     return () => clearInterval(timer)
   }, [])
@@ -242,16 +272,16 @@ export function SequenceGame({ config, onComplete }) {
 
   const pct=((config.duration-t)/config.duration)*100
   return (
-    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:16 }}>
+    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:sp(16,s) }}>
       <Bar pct={pct} color={config.color} timeLeft={t} />
       <div style={{ display:'flex', gap:20, alignItems:'center' }}>
         <Num label="Nível" value={maxLevel.current} color={config.color} />
         <div style={{ display:'flex', gap:5 }}>{[0,1,2].map(i => <span key={i} style={{ fontSize:18, opacity:i<lives?1:0.15, transition:'opacity 0.3s' }}>❤️</span>)}</div>
       </div>
-      <p style={{ color:phase==='input'?config.color:'#3A5470', fontSize:12, fontFamily:'JetBrains Mono', fontWeight:phase==='input'?600:400, transition:'color 0.3s' }}>{status}</p>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(2, 138px)', gap:10 }}>
+      <p style={{ color:phase==='input'?config.color:'#3A5470', fontSize:sp(12,s), fontFamily:'JetBrains Mono', fontWeight:phase==='input'?600:400, transition:'color 0.3s' }}>{status}</p>
+      <div style={{ display:'grid', gridTemplateColumns:`repeat(2, ${btnSize}px)`, gap:sp(10,s) }}>
         {SC.map((c,idx) => (
-          <button key={idx} onClick={() => handleBtn(idx)} style={{ height:90, borderRadius:16, background:activeBtn===idx?c.bg:c.dim, border:`2px solid ${activeBtn===idx?c.bg:'#182535'}`, transition:'all 0.12s', color:activeBtn===idx?'#fff':'#324050', fontSize:10, fontWeight:700, letterSpacing:1, boxShadow:activeBtn===idx?`0 0 22px ${c.bg}50`:'none' }}>{c.name}</button>
+          <button key={idx} onClick={() => handleBtn(idx)} style={{ height:sp(90,s), borderRadius:sp(16,s), background:activeBtn===idx?c.bg:c.dim, border:`2px solid ${activeBtn===idx?c.bg:'#182535'}`, transition:'all 0.12s', color:activeBtn===idx?'#fff':'#324050', fontSize:sp(10,s), fontWeight:700, letterSpacing:1, boxShadow:activeBtn===idx?`0 0 22px ${c.bg}50`:'none' }}>{c.name}</button>
         ))}
       </div>
     </div>
@@ -265,6 +295,7 @@ const STR=[{word:'VERMELHO',color:'#EF4444',id:0},{word:'AZUL',color:'#3B82F6',i
 function newTrial() { const w=Math.floor(Math.random()*STR.length); let c; do { c=Math.floor(Math.random()*STR.length) } while(c===w); return { word:STR[w].word, colorVal:STR[c].color, correct:STR[c].id } }
 
 export function StroopGame({ config, onComplete }) {
+  const s = useGameScale()
   const [trial,setTrial]=useState(() => newTrial()); const [correct,setCorrect]=useState(0); const [wrong,setWrong]=useState(0)
   const [t,setT]=useState(config.duration); const [done,setDone]=useState(false); const [fb,setFb]=useState(null)
   const rts=useRef([]); const cR=useRef(0); const wR=useRef(0); const tStart=useRef(Date.now()); const doneRef=useRef(false)
@@ -288,17 +319,19 @@ export function StroopGame({ config, onComplete }) {
   }, [done])
 
   const pct=((config.duration-t)/config.duration)*100
+  const wordSize = sp(36, s)
+  const btnMinW = sp(110, s)
   return (
-    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:16 }}>
+    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:sp(16,s) }}>
       <Bar pct={pct} color={config.color} timeLeft={t} />
       <div style={{ display:'flex', gap:24 }}><Num label="Corretos" value={correct} color={config.color} /><Num label="Erros" value={wrong} color="#EF4444" /></div>
-      <p style={{ color:'#3A5470', fontSize:10, fontFamily:'JetBrains Mono' }}>Clique na COR DA TINTA</p>
-      <div style={{ padding:'22px 44px', background:'#0C1520', borderRadius:20, minWidth:270, textAlign:'center', border:`2px solid ${fb==='hit'?'#34D399':fb==='miss'?'#EF4444':'#1A2A3A'}`, transition:'border-color 0.2s' }}>
-        <span style={{ fontSize:36, fontWeight:800, color:trial.colorVal, letterSpacing:4 }}>{trial.word}</span>
+      <p style={{ color:'#3A5470', fontSize:sp(10,s), fontFamily:'JetBrains Mono' }}>Clique na COR DA TINTA</p>
+      <div style={{ padding:`${sp(22,s)}px ${sp(28,s)}px`, background:'#0C1520', borderRadius:sp(20,s), width:'100%', textAlign:'center', border:`2px solid ${fb==='hit'?'#34D399':fb==='miss'?'#EF4444':'#1A2A3A'}`, transition:'border-color 0.2s' }}>
+        <span style={{ fontSize:wordSize, fontWeight:800, color:trial.colorVal, letterSpacing:sp(4,s) }}>{trial.word}</span>
       </div>
-      <div style={{ display:'flex', gap:10, flexWrap:'wrap', justifyContent:'center' }}>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:sp(8,s), width:'100%' }}>
         {STR.map(item => (
-          <button key={item.id} onClick={() => handleAnswer(item.id)} style={{ padding:'12px 18px', borderRadius:12, transition:'all 0.1s', border:`2px solid ${item.color}35`, background:`${item.color}10`, color:item.color, fontSize:12, fontWeight:700, letterSpacing:1, minWidth:110 }}>{item.word}</button>
+          <button key={item.id} onClick={() => handleAnswer(item.id)} style={{ padding:`${sp(12,s)}px ${sp(8,s)}px`, borderRadius:sp(12,s), transition:'all 0.1s', border:`2px solid ${item.color}35`, background:`${item.color}10`, color:item.color, fontSize:sp(12,s), fontWeight:700, letterSpacing:1 }}>{item.word}</button>
         ))}
       </div>
     </div>
@@ -309,6 +342,10 @@ export function StroopGame({ config, onComplete }) {
    BOX BREATHING
 ════════════════════════════════════════════ */
 export function BreathingGame({ config, onComplete }) {
+  const s = useGameScale()
+  const circleOuter = sp(220, s)
+  const circleInner = sp(130, s)
+
   const [phase,setPhase]=useState('inhale'); const [phasePct,setPhasePct]=useState(0)
   const [cycles,setCycles]=useState(0); const [t,setT]=useState(config.duration); const [done,setDone]=useState(false)
   const elapsed=useRef(0); const cyclesR=useRef(0); const PD=4000; const CD=PD*3
@@ -331,20 +368,20 @@ export function BreathingGame({ config, onComplete }) {
   const timerPct=((config.duration-t)/config.duration)*100
 
   return (
-    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:18 }}>
+    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:sp(18,s) }}>
       <Bar pct={timerPct} color={config.color} timeLeft={Math.round(t)} />
       <Num label="Ciclos" value={cycles} color={config.color} />
-      <div style={{ position:'relative', width:220, height:220, display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <div style={{ position:'relative', width:circleOuter, height:circleOuter, display:'flex', alignItems:'center', justifyContent:'center' }}>
         <div style={{ position:'absolute', width:'100%', height:'100%', borderRadius:'50%', border:`1px solid ${c}15`, pointerEvents:'none' }} />
-        <div style={{ width:130, height:130, borderRadius:'50%', background:`radial-gradient(circle at 38% 32%, ${c}55, ${c}18 55%, ${c}06)`, border:`2px solid ${c}55`, transform:`scale(${scale})`, transition:'transform 0.1s linear, border-color 0.6s, background 0.6s', boxShadow:`0 0 ${Math.round(40*scale)}px ${c}22`, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:3 }}>
-          <span style={{ fontSize:10, fontWeight:800, color:c, letterSpacing:2 }}>{PL[phase]}</span>
-          <span style={{ fontSize:9, color:`${c}90`, fontFamily:'JetBrains Mono' }}>4 segundos</span>
+        <div style={{ width:circleInner, height:circleInner, borderRadius:'50%', background:`radial-gradient(circle at 38% 32%, ${c}55, ${c}18 55%, ${c}06)`, border:`2px solid ${c}55`, transform:`scale(${scale})`, transition:'transform 0.1s linear, border-color 0.6s, background 0.6s', boxShadow:`0 0 ${Math.round(40*scale)}px ${c}22`, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:3 }}>
+          <span style={{ fontSize:sp(10,s), fontWeight:800, color:c, letterSpacing:2 }}>{PL[phase]}</span>
+          <span style={{ fontSize:sp(9,s), color:`${c}90`, fontFamily:'JetBrains Mono' }}>4 segundos</span>
         </div>
       </div>
-      <div style={{ width:200, height:3, background:'#162030', borderRadius:2, overflow:'hidden' }}>
+      <div style={{ width:sp(200,s), height:3, background:'#162030', borderRadius:2, overflow:'hidden' }}>
         <div style={{ width:`${phasePct*100}%`, height:'100%', background:c, transition:'width 0.1s linear, background 0.6s' }} />
       </div>
-      <div style={{ display:'flex', gap:22 }}>
+      <div style={{ display:'flex', gap:sp(22,s) }}>
         {Object.entries(PC).map(([p,col]) => (
           <div key={p} style={{ textAlign:'center', opacity:phase===p?1:0.28, transition:'opacity 0.5s' }}>
             <div style={{ width:6, height:6, borderRadius:'50%', background:col, margin:'0 auto 4px' }} />
