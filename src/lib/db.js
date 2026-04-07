@@ -102,7 +102,6 @@ export function computeStreak(sessions) {
   const fullSessions = sessions.filter(s => s.is_full_session)
   if (fullSessions.length === 0) return { current: 0, best: 0 }
 
-  // Get unique dates descending
   const dates = [...new Set(
     fullSessions.map(s => new Date(s.created_at).toDateString())
   )].map(d => new Date(d)).sort((a, b) => b - a)
@@ -110,19 +109,12 @@ export function computeStreak(sessions) {
   const today = new Date(); today.setHours(0,0,0,0)
   const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1)
 
-  let current = 0
-  let best = 0
-  let streak = 0
-  let prev = null
+  let current = 0; let best = 0; let streak = 0; let prev = null
 
   for (let i = 0; i < dates.length; i++) {
     const d = dates[i]; d.setHours(0,0,0,0)
     if (i === 0) {
-      if (d.getTime() === today.getTime() || d.getTime() === yesterday.getTime()) {
-        streak = 1
-      } else {
-        streak = 0
-      }
+      streak = (d.getTime() === today.getTime() || d.getTime() === yesterday.getTime()) ? 1 : 0
     } else {
       const diff = (prev - d) / 86400000
       if (diff === 1) { streak++ } else { streak = 1 }
@@ -132,8 +124,6 @@ export function computeStreak(sessions) {
     if (i === 0) current = streak
   }
 
-  // If most recent session was yesterday and we haven't played today, current stands
-  // If most recent was before yesterday, current = 0
   const mostRecent = dates[0]; mostRecent.setHours(0,0,0,0)
   if (mostRecent < yesterday) current = 0
 
@@ -146,11 +136,8 @@ export function computeStats(sessions) {
 
   const full = sessions.filter(s => s.is_full_session)
   const { current: streak, best: bestStreak } = computeStreak(sessions)
-
-  // Last 10 full sessions for sparkline
   const last10 = full.slice(0, 10).map(s => s.avg_score).reverse()
 
-  // Per exercise averages and best
   const byExercise = {}
   full.forEach(s => {
     s.session_exercises?.forEach(e => {
@@ -170,21 +157,33 @@ export function computeStats(sessions) {
     exerciseStats[id] = { avg, best: data.best, trend, count: data.scores.length }
   })
 
-  // Sessions last 7 days
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7)
   const sessionsThisWeek = full.filter(s => new Date(s.created_at) > weekAgo).length
+  const overallAvg = full.length > 0 ? Math.round(full.reduce((a, s) => a + s.avg_score, 0) / full.length) : 0
 
-  const overallAvg = full.length > 0
-    ? Math.round(full.reduce((a, s) => a + s.avg_score, 0) / full.length)
-    : 0
+  return { totalSessions: full.length, overallAvg, streak, bestStreak, sessionsThisWeek, last10, exerciseStats }
+}
 
-  return {
-    totalSessions: full.length,
-    overallAvg,
-    streak,
-    bestStreak,
-    sessionsThisWeek,
-    last10,
-    exerciseStats,
-  }
+/* ── Profile Levels ── */
+export async function getLevels(profileId) {
+  const { data, error } = await supabase
+    .from('profile_levels')
+    .select('exercise_id, journey_level, max_unlocked')
+    .eq('profile_id', profileId)
+  if (error) return {}
+  const result = {}
+  data?.forEach(row => {
+    result[row.exercise_id] = { journey: row.journey_level, unlocked: row.max_unlocked }
+  })
+  return result
+}
+
+export async function saveLevel(profileId, exerciseId, journeyLevel, maxUnlocked) {
+  const { error } = await supabase
+    .from('profile_levels')
+    .upsert(
+      { profile_id: profileId, exercise_id: exerciseId, journey_level: journeyLevel, max_unlocked: maxUnlocked },
+      { onConflict: 'profile_id,exercise_id' }
+    )
+  if (error) console.error('saveLevel error', error)
 }
