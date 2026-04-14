@@ -14,8 +14,8 @@ function useScale() {
 const sp = (v, s) => Math.round(v * s)
 
 /* ════════════════════════════════════════════
-   CAMPO VISUAL — UFOV
-   config: { color, startMs, minMs, duration }
+   CAMPO VISUAL — UFOV + distractors (L4/L5)
+   config: { color, startMs, minMs, distractors, duration }
 ════════════════════════════════════════════ */
 const SYMBOLS = ['●', '■', '▲', '◆']
 const N_POS = 8
@@ -31,17 +31,21 @@ export function UFOVGame({ config, onComplete }) {
   const initR = sp(82, s)
   const initMs = config.startMs ?? 600
   const minMs = config.minMs ?? 400
+  const numDistractors = config.distractors ?? 0
 
   const [phase, setPhase] = useState('fixation')
-  const [cStim, setCStim] = useState(null); const [pStim, setPStim] = useState(null)
-  const [cAns, setCAns] = useState(null); const [pAns, setPAns] = useState(null)
+  const [cStim, setCStim] = useState(null)
+  const [pStim, setPStim] = useState(null)           // real target position
+  const [dStims, setDStims] = useState([])           // distractor positions
+  const [cAns, setCAns] = useState(null)
+  const [pAns, setPAns] = useState(null)
   const [correct, setCorrect] = useState(0); const [total, setTotal] = useState(0)
   const [displayMs, setDisplayMs] = useState(initMs)
   const [radius, setRadius] = useState(initR)
   const [fb, setFb] = useState(null)
   const [timeLeft, setTimeLeft] = useState(config.duration)
   const [done, setDone] = useState(false)
-  const R = useRef({ correct:0, total:0, displayMs:initMs, radius:initR, stim:{c:0,p:0}, cAns:null, pAns:null, awaiting:false, done:false })
+  const R = useRef({ correct:0, total:0, displayMs:initMs, radius:initR, stim:{c:0,p:0}, distractors:[], cAns:null, pAns:null, awaiting:false, done:false })
   const rTimer = useRef(null); const tTimer = useRef(null)
   const evalRef = useRef(null); const runRef = useRef(null)
 
@@ -54,28 +58,41 @@ export function UFOVGame({ config, onComplete }) {
       if (ok) {
         r.correct++; setCorrect(r.correct)
         if (r.correct % 3 === 0) {
-          r.displayMs = Math.max(minMs, r.displayMs - 55); setDisplayMs(r.displayMs)
-          r.radius = Math.min(sp(128, s), r.radius + sp(10, s)); setRadius(r.radius)
+          r.displayMs = Math.max(minMs, r.displayMs - 40); setDisplayMs(r.displayMs)
+          r.radius = Math.min(sp(128, s), r.radius + sp(8, s)); setRadius(r.radius)
         }
       }
       setFb(ok ? 'hit' : 'miss'); setPhase('feedback')
       tTimer.current = setTimeout(() => runRef.current(), 380)
     }
     evalRef.current = evaluate
+
     const runTrial = () => {
       if (r.done) return
-      r.stim = { c: Math.floor(Math.random()*4), p: Math.floor(Math.random()*N_POS) }
+      const targetPos = Math.floor(Math.random() * N_POS)
+      // Pick distractor positions (different from target)
+      const otherPositions = Array.from({length: N_POS}, (_, i) => i).filter(i => i !== targetPos)
+      const shuffled = otherPositions.sort(() => Math.random() - 0.5)
+      const distractorPositions = shuffled.slice(0, numDistractors)
+
+      r.stim = { c: Math.floor(Math.random()*4), p: targetPos }
+      r.distractors = distractorPositions
       r.cAns = null; r.pAns = null; r.awaiting = false
-      setCAns(null); setPAns(null); setFb(null); setPhase('fixation'); setCStim(null); setPStim(null)
+      setCAns(null); setPAns(null); setFb(null); setPhase('fixation')
+      setCStim(null); setPStim(null); setDStims([])
+
       setTimeout(() => {
-        if (r.done) return; setPhase('display'); setCStim(r.stim.c); setPStim(r.stim.p)
+        if (r.done) return
+        setPhase('display'); setCStim(r.stim.c); setPStim(r.stim.p); setDStims(distractorPositions)
         setTimeout(() => {
-          if (r.done) return; setPhase('response'); setCStim(null); setPStim(null); r.awaiting = true
-          rTimer.current = setTimeout(() => { if (r.awaiting) evaluate() }, 2600)
+          if (r.done) return
+          setPhase('response'); setCStim(null); setPStim(null); setDStims([]); r.awaiting = true
+          rTimer.current = setTimeout(() => { if (r.awaiting) evaluate() }, 2800)
         }, r.displayMs)
       }, 340)
     }
     runRef.current = runTrial
+
     const timer = setInterval(() => setTimeLeft(t => {
       if (t<=1) { clearInterval(timer); r.done=true; clearTimeout(rTimer.current); clearTimeout(tTimer.current); setDone(true); return 0 }
       return t-1
@@ -117,39 +134,66 @@ export function UFOVGame({ config, onComplete }) {
       <div style={{ position:'relative', width:arenaSize, height:arenaSize }}>
         <div style={{ position:'absolute', width:radius*2+sp(40,s), height:radius*2+sp(40,s), borderRadius:'50%', border:`1px solid ${config.color}14`, left:CX-radius-sp(20,s), top:CY-radius-sp(20,s), pointerEvents:'none', transition:'all 0.6s' }} />
         {Array(N_POS).fill(null).map((_, idx) => {
-          const { x, y } = coords(idx, radius); const isA=phase==='display'&&pStim===idx; const isSel=pAns===idx
-          return <button key={idx} onClick={() => handleP(idx)} style={{ position:'absolute', left:CX+x-periW/2, top:CY+y-periW/2, width:periW, height:periW, borderRadius:'50%', background:isA?config.color:isSel?`${config.color}30`:'#0C1520', border:`2px solid ${isA||isSel?config.color:'#1A2A3A'}`, boxShadow:isA?`0 0 20px ${config.color}`:'none', transition:'all 0.08s' }} />
+          const { x, y } = coords(idx, radius)
+          const isTarget = phase==='display' && pStim===idx
+          const isDistractor = phase==='display' && dStims.includes(idx)
+          const isSel = pAns===idx
+          return (
+            <button key={idx} onClick={() => handleP(idx)} style={{
+              position:'absolute', left:CX+x-periW/2, top:CY+y-periW/2,
+              width:periW, height:periW, borderRadius:'50%',
+              background: isTarget ? config.color : isDistractor ? '#3A5470' : isSel ? `${config.color}30` : '#0C1520',
+              border: `2px solid ${isTarget||isSel ? config.color : isDistractor ? '#5B7A9A' : '#1A2A3A'}`,
+              boxShadow: isTarget ? `0 0 20px ${config.color}` : 'none',
+              transition:'all 0.08s',
+              opacity: isDistractor ? 0.7 : 1,
+            }} />
+          )
         })}
         <div style={{ position:'absolute', left:CX-ctrW/2, top:CY-ctrW/2, width:ctrW, height:ctrW, borderRadius:sp(13,s), background:phase==='display'?`${config.color}20`:'#0C1520', border:`2px solid ${phase==='display'?config.color:'#1A2A3A'}`, display:'flex', alignItems:'center', justifyContent:'center', userSelect:'none' }}>
           <span style={{ fontSize:sp(22,s), color:config.color, fontWeight:800 }}>{phase==='display'&&cStim!==null?SYMBOLS[cStim]:phase==='response'?'?':'+'}</span>
         </div>
       </div>
+      {numDistractors > 0 && phase==='response' && (
+        <p style={{ color:'#F59E0B', fontSize:sp(9,s), fontFamily:'JetBrains Mono', textAlign:'center' }}>O alvo era o ponto mais brilhante</p>
+      )}
       <p style={{ color:phase==='response'?config.color:'#3A5470', fontSize:sp(10,s), fontFamily:'JetBrains Mono', textAlign:'center', transition:'color 0.3s' }}>{hint}</p>
     </div>
   )
 }
 
 /* ════════════════════════════════════════════
-   DUAL N-BACK
-   config: { color, n, duration }
+   N-BACK — Single (L1) / Dual (L2-L4) / Triple (L5)
+   config: { color, n, single, triple, intervalMs, duration }
 ════════════════════════════════════════════ */
 const NB_LETTERS = ['A','B','C','D','E','F','G','H']
+const NB_COLORS_LIST = ['#22D3EE','#F472B6','#34D399','#FCD34D','#FB923C','#A78BFA']
 
 export function DualNBackGame({ config, onComplete }) {
   const s = useScale()
   const N = config.n ?? 2
+  const isSingle = config.single ?? false
+  const isTriple = config.triple ?? false
+  const intervalMs = config.intervalMs ?? 2000
   const cellSize = sp(66, s)
 
-  const [activeCell, setActiveCell] = useState(null); const [activeLetter, setActiveLetter] = useState(null)
-  const [posHits, setPosHits] = useState(0); const [letHits, setLetHits] = useState(0)
-  const [posMisses, setPosMisses] = useState(0); const [letMisses, setLetMisses] = useState(0)
-  const [posFa, setPosFa] = useState(0); const [letFa, setLetFa] = useState(0)
-  const [posFb, setPosFb] = useState(null); const [letFb, setLetFb] = useState(null)
+  const [activeCell, setActiveCell] = useState(null)
+  const [activeLetter, setActiveLetter] = useState(null)
+  const [activeCellColor, setActiveCellColor] = useState(null)   // triple stream
+
+  const [posHits, setPosHits] = useState(0); const [posM, setPosM] = useState(0); const [posFA, setPosFA] = useState(0)
+  const [letHits, setLetHits] = useState(0); const [letM, setLetM] = useState(0); const [letFA, setLetFA] = useState(0)
+  const [colHits, setColHits] = useState(0); const [colM, setColM] = useState(0); const [colFA, setColFA] = useState(0)
+  const [posFb, setPosFb] = useState(null); const [letFb, setLetFb] = useState(null); const [colFb, setColFb] = useState(null)
+
   const [timeLeft, setTimeLeft] = useState(config.duration); const [done, setDone] = useState(false); const [step, setStep] = useState(0)
-  const posSeq=useRef([]); const letSeq=useRef([])
-  const posRsp=useRef(false); const letRsp=useRef(false)
-  const prevPosM=useRef(false); const prevLetM=useRef(false)
-  const pH=useRef(0); const lH=useRef(0); const pM=useRef(0); const lM=useRef(0); const pF=useRef(0); const lF=useRef(0)
+
+  const posSeq=useRef([]); const letSeq=useRef([]); const colSeq=useRef([])
+  const posRsp=useRef(false); const letRsp=useRef(false); const colRsp=useRef(false)
+  const prevPosM=useRef(false); const prevLetM=useRef(false); const prevColM=useRef(false)
+  const pH=useRef(0); const pMr=useRef(0); const pF=useRef(0)
+  const lH=useRef(0); const lMr=useRef(0); const lF=useRef(0)
+  const cH=useRef(0); const cMr=useRef(0); const cF=useRef(0)
   const doneRef=useRef(false)
 
   useEffect(() => {
@@ -159,72 +203,125 @@ export function DualNBackGame({ config, onComplete }) {
     }), 1000)
     const stepper = setInterval(() => {
       if (doneRef.current) return
-      if (prevPosM.current && !posRsp.current) { pM.current++; setPosMisses(pM.current) }
-      if (prevLetM.current && !letRsp.current) { lM.current++; setLetMisses(lM.current) }
-      const newPos=Math.floor(Math.random()*9); const newL=Math.floor(Math.random()*8)
-      posSeq.current.push(newPos); letSeq.current.push(newL)
-      const idx=posSeq.current.length-1
-      posRsp.current=false; letRsp.current=false
-      prevPosM.current=idx>=N&&posSeq.current[idx]===posSeq.current[idx-N]
-      prevLetM.current=idx>=N&&letSeq.current[idx]===letSeq.current[idx-N]
-      setActiveCell(newPos); setActiveLetter(NB_LETTERS[newL]); setStep(idx+1)
-      setTimeout(() => { if (!doneRef.current) { setActiveCell(null); setActiveLetter(null) } }, 1500)
-    }, 2000)
+      if (prevPosM.current && !posRsp.current) { pMr.current++; setPosM(pMr.current) }
+      if (!isSingle && prevLetM.current && !letRsp.current) { lMr.current++; setLetM(lMr.current) }
+      if (isTriple && prevColM.current && !colRsp.current) { cMr.current++; setColM(cMr.current) }
+
+      const newPos = Math.floor(Math.random()*9)
+      const newLetIdx = Math.floor(Math.random()*8)
+      const newColIdx = Math.floor(Math.random()*NB_COLORS_LIST.length)
+      posSeq.current.push(newPos); letSeq.current.push(newLetIdx); colSeq.current.push(newColIdx)
+      const idx = posSeq.current.length - 1
+      posRsp.current=false; letRsp.current=false; colRsp.current=false
+      prevPosM.current = idx>=N && posSeq.current[idx]===posSeq.current[idx-N]
+      prevLetM.current = idx>=N && letSeq.current[idx]===letSeq.current[idx-N]
+      prevColM.current = idx>=N && colSeq.current[idx]===colSeq.current[idx-N]
+      setActiveCell(newPos)
+      setActiveLetter(NB_LETTERS[newLetIdx])
+      setActiveCellColor(NB_COLORS_LIST[newColIdx])
+      setStep(idx+1)
+      setTimeout(() => { if (!doneRef.current) { setActiveCell(null); setActiveLetter(null); setActiveCellColor(null) } }, intervalMs * 0.75)
+    }, intervalMs)
     return () => { clearInterval(timer); clearInterval(stepper) }
   }, [])
 
   const handlePos = () => {
     if (doneRef.current||posRsp.current) return; posRsp.current=true
     const idx=posSeq.current.length-1; const ok=idx>=N&&posSeq.current[idx]===posSeq.current[idx-N]
-    if (ok) { pH.current++; setPosHits(pH.current); setPosFb('hit') } else { pF.current++; setPosFa(pF.current); setPosFb('miss') }
+    if (ok) { pH.current++; setPosHits(pH.current); setPosFb('hit') } else { pF.current++; setPosFA(pF.current); setPosFb('miss') }
     setTimeout(() => setPosFb(null), 500)
   }
   const handleLet = () => {
     if (doneRef.current||letRsp.current) return; letRsp.current=true
     const idx=letSeq.current.length-1; const ok=idx>=N&&letSeq.current[idx]===letSeq.current[idx-N]
-    if (ok) { lH.current++; setLetHits(lH.current); setLetFb('hit') } else { lF.current++; setLetFa(lF.current); setLetFb('miss') }
+    if (ok) { lH.current++; setLetHits(lH.current); setLetFb('hit') } else { lF.current++; setLetFA(lF.current); setLetFb('miss') }
     setTimeout(() => setLetFb(null), 500)
+  }
+  const handleCol = () => {
+    if (doneRef.current||colRsp.current) return; colRsp.current=true
+    const idx=colSeq.current.length-1; const ok=idx>=N&&colSeq.current[idx]===colSeq.current[idx-N]
+    if (ok) { cH.current++; setColHits(cH.current); setColFb('hit') } else { cF.current++; setColFA(cF.current); setColFb('miss') }
+    setTimeout(() => setColFb(null), 500)
   }
 
   useEffect(() => {
     if (!done) return
-    const pt=pH.current+pM.current; const lt=lH.current+lM.current
+    const pt=pH.current+pMr.current; const lt=lH.current+lMr.current; const ct=cH.current+cMr.current
     const pp=pt>0?Math.max(0,(pH.current-pF.current*0.5)/pt*100):0
     const lp=lt>0?Math.max(0,(lH.current-lF.current*0.5)/lt*100):0
-    onComplete({ points:Math.min(100,Math.round((pp+lp)/2)), label:`Pos ${pH.current}✓${pM.current}✗ • Let ${lH.current}✓${lM.current}✗`, detail:`FA: pos ${pF.current} let ${lF.current}` })
+    const cp=ct>0?Math.max(0,(cH.current-cF.current*0.5)/ct*100):0
+    const streams = isSingle ? 1 : isTriple ? 3 : 2
+    const total = isSingle ? pp : isTriple ? (pp+lp+cp)/3 : (pp+lp)/2
+    onComplete({ points:Math.min(100,Math.round(total)), label:`Pos ${pH.current}✓${pMr.current}✗${isSingle?'':` • Let ${lH.current}✓${lMr.current}✗`}${isTriple?` • Cor ${cH.current}✓${cMr.current}✗`:''}`, detail:`N=${N} • ${streams} stream${streams>1?'s':''}` })
   }, [done])
 
   const pct = ((config.duration-timeLeft)/config.duration)*100
+  const activeColor = isTriple && activeCellColor ? activeCellColor : config.color
+
   return (
-    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:sp(12,s) }}>
+    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:sp(10,s) }}>
       <Bar pct={pct} color={config.color} timeLeft={timeLeft} />
-      <div style={{ fontSize:9, color:config.color, fontFamily:'JetBrains Mono', letterSpacing:2 }}>N = {N}</div>
-      <div style={{ display:'flex', gap:6, padding:`${sp(8,s)}px ${sp(12,s)}px`, background:'#0C1520', borderRadius:12, border:'1px solid #1A2A3A' }}>
-        <div style={{ paddingRight:sp(10,s), borderRight:'1px solid #1A2A3A' }}>
-          <div style={{ fontSize:8, color:config.color, fontFamily:'JetBrains Mono', letterSpacing:1.5, marginBottom:4 }}>POSIÇÃO</div>
-          <div style={{ display:'flex', gap:sp(8,s) }}><Num label="Hit" value={posHits} color={config.color} small /><Num label="Miss" value={posMisses} color="#EF4444" small /><Num label="FA" value={posFa} color="#F59E0B" small /></div>
-        </div>
-        <div style={{ paddingLeft:sp(10,s) }}>
-          <div style={{ fontSize:8, color:'#F59E0B', fontFamily:'JetBrains Mono', letterSpacing:1.5, marginBottom:4 }}>LETRA</div>
-          <div style={{ display:'flex', gap:sp(8,s) }}><Num label="Hit" value={letHits} color="#F59E0B" small /><Num label="Miss" value={letMisses} color="#EF4444" small /><Num label="FA" value={letFa} color="#F59E0B" small /></div>
-        </div>
+
+      {/* Difficulty badge */}
+      <div style={{ fontSize:9, color:config.color, fontFamily:'JetBrains Mono', letterSpacing:2 }}>
+        N = {N} {isSingle ? '• POSIÇÃO APENAS' : isTriple ? '• TRIPLE STREAM' : '• DUAL STREAM'}
       </div>
-      <div style={{ width:sp(80,s), height:sp(56,s), borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', background:activeLetter?`${config.color}15`:'#0C1520', border:`2px solid ${activeLetter?config.color:'#1A2A3A'}`, transition:'all 0.18s' }}>
-        <span style={{ fontSize:sp(30,s), fontWeight:800, color:activeLetter?config.color:'#1A2A3A' }}>{activeLetter||'—'}</span>
+
+      {/* Score panel */}
+      <div style={{ display:'flex', gap:6, padding:`${sp(7,s)}px ${sp(10,s)}px`, background:'#0C1520', borderRadius:12, border:'1px solid #1A2A3A', flexWrap:'wrap', justifyContent:'center' }}>
+        <div style={{ paddingRight:8, borderRight:'1px solid #1A2A3A' }}>
+          <div style={{ fontSize:7, color:config.color, fontFamily:'JetBrains Mono', letterSpacing:1, marginBottom:3 }}>POS</div>
+          <div style={{ display:'flex', gap:sp(6,s) }}><Num label="✓" value={posHits} color={config.color} small /><Num label="✗" value={posM} color="#EF4444" small /><Num label="FA" value={posFA} color="#F59E0B" small /></div>
+        </div>
+        {!isSingle && (
+          <div style={{ paddingLeft:8, paddingRight: isTriple ? 8 : 0, borderRight: isTriple ? '1px solid #1A2A3A' : 'none' }}>
+            <div style={{ fontSize:7, color:'#F59E0B', fontFamily:'JetBrains Mono', letterSpacing:1, marginBottom:3 }}>LETRA</div>
+            <div style={{ display:'flex', gap:sp(6,s) }}><Num label="✓" value={letHits} color="#F59E0B" small /><Num label="✗" value={letM} color="#EF4444" small /><Num label="FA" value={letFA} color="#F59E0B" small /></div>
+          </div>
+        )}
+        {isTriple && (
+          <div style={{ paddingLeft:8 }}>
+            <div style={{ fontSize:7, color:'#34D399', fontFamily:'JetBrains Mono', letterSpacing:1, marginBottom:3 }}>COR</div>
+            <div style={{ display:'flex', gap:sp(6,s) }}><Num label="✓" value={colHits} color="#34D399" small /><Num label="✗" value={colM} color="#EF4444" small /><Num label="FA" value={colFA} color="#34D399" small /></div>
+          </div>
+        )}
       </div>
+
+      {/* Letter display — hidden in single mode */}
+      {!isSingle && (
+        <div style={{ width:sp(80,s), height:sp(52,s), borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', background:activeLetter?`${config.color}15`:'#0C1520', border:`2px solid ${activeLetter?config.color:'#1A2A3A'}`, transition:'all 0.18s' }}>
+          <span style={{ fontSize:sp(28,s), fontWeight:800, color:activeLetter?config.color:'#1A2A3A' }}>{activeLetter||'—'}</span>
+        </div>
+      )}
+
       <p style={{ color:'#3A5470', fontSize:sp(9,s), fontFamily:'JetBrains Mono' }}>Rodada {step} • compare com {N} passos atrás</p>
+
+      {/* Grid */}
       <div style={{ display:'grid', gridTemplateColumns:`repeat(3, ${cellSize}px)`, gap:sp(7,s) }}>
         {Array(9).fill(null).map((_,i) => (
-          <div key={i} style={{ height:cellSize, borderRadius:sp(12,s), background:activeCell===i?`${config.color}20`:'#0C1520', border:`2px solid ${activeCell===i?config.color:'#1A2A3A'}`, boxShadow:activeCell===i?`0 0 14px ${config.color}28`:'none', transition:'all 0.18s' }} />
+          <div key={i} style={{ height:cellSize, borderRadius:sp(12,s), background:activeCell===i ? (isTriple && activeCellColor ? `${activeCellColor}25` : `${config.color}20`) : '#0C1520', border:`2px solid ${activeCell===i ? activeColor : '#1A2A3A'}`, boxShadow:activeCell===i?`0 0 14px ${activeColor}28`:'none', transition:'all 0.18s' }} />
         ))}
       </div>
-      <div style={{ display:'flex', gap:sp(10,s) }}>
-        {[{sub:'POSIÇÃO',fb:posFb,color:config.color,onClick:handlePos},{sub:'LETRA',fb:letFb,color:'#F59E0B',onClick:handleLet}].map(btn => (
-          <button key={btn.sub} onClick={btn.onClick} style={{ padding:`${sp(11,s)}px ${sp(20,s)}px`, borderRadius:12, transition:'all 0.15s', background:btn.fb==='hit'?'#34D39918':btn.fb==='miss'?'#EF444418':`${btn.color}10`, border:`2px solid ${btn.fb==='hit'?'#34D399':btn.fb==='miss'?'#EF4444':btn.color}50`, color:btn.fb==='hit'?'#34D399':btn.fb==='miss'?'#EF4444':btn.color, display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
-            <span style={{ fontSize:sp(12,s), fontWeight:800, letterSpacing:2 }}>{btn.fb==='hit'?'✓':btn.fb==='miss'?'✗':'MATCH'}</span>
-            <span style={{ fontSize:sp(8,s), fontFamily:'JetBrains Mono', letterSpacing:1.5, opacity:0.7 }}>{btn.sub}</span>
+
+      {/* Match buttons */}
+      <div style={{ display:'flex', gap:sp(8,s), flexWrap:'wrap', justifyContent:'center' }}>
+        {/* Position button — always shown */}
+        <button onClick={handlePos} style={{ padding:`${sp(11,s)}px ${sp(isSingle?32:16,s)}px`, borderRadius:12, transition:'all 0.15s', background:posFb==='hit'?'#34D39918':posFb==='miss'?'#EF444418':`${config.color}10`, border:`2px solid ${posFb==='hit'?'#34D399':posFb==='miss'?'#EF4444':config.color}50`, color:posFb==='hit'?'#34D399':posFb==='miss'?'#EF4444':config.color, display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+          <span style={{ fontSize:sp(12,s), fontWeight:800, letterSpacing:2 }}>{posFb==='hit'?'✓':posFb==='miss'?'✗':'MATCH'}</span>
+          <span style={{ fontSize:sp(8,s), fontFamily:'JetBrains Mono', letterSpacing:1.5, opacity:0.7 }}>{isSingle ? 'POSIÇÃO' : 'POS'}</span>
+        </button>
+        {!isSingle && (
+          <button onClick={handleLet} style={{ padding:`${sp(11,s)}px ${sp(16,s)}px`, borderRadius:12, transition:'all 0.15s', background:letFb==='hit'?'#34D39918':letFb==='miss'?'#EF444418':'#F59E0B10', border:`2px solid ${letFb==='hit'?'#34D399':letFb==='miss'?'#EF4444':'#F59E0B'}50`, color:letFb==='hit'?'#34D399':letFb==='miss'?'#EF4444':'#F59E0B', display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+            <span style={{ fontSize:sp(12,s), fontWeight:800, letterSpacing:2 }}>{letFb==='hit'?'✓':letFb==='miss'?'✗':'MATCH'}</span>
+            <span style={{ fontSize:sp(8,s), fontFamily:'JetBrains Mono', letterSpacing:1.5, opacity:0.7 }}>LETRA</span>
           </button>
-        ))}
+        )}
+        {isTriple && (
+          <button onClick={handleCol} style={{ padding:`${sp(11,s)}px ${sp(16,s)}px`, borderRadius:12, transition:'all 0.15s', background:colFb==='hit'?'#34D39918':colFb==='miss'?'#EF444418':'#34D39910', border:`2px solid ${colFb==='hit'?'#34D399':colFb==='miss'?'#EF4444':'#34D399'}50`, color:colFb==='hit'?'#34D399':colFb==='miss'?'#EF4444':'#34D399', display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+            <span style={{ fontSize:sp(12,s), fontWeight:800, letterSpacing:2 }}>{colFb==='hit'?'✓':colFb==='miss'?'✗':'MATCH'}</span>
+            <span style={{ fontSize:sp(8,s), fontFamily:'JetBrains Mono', letterSpacing:1.5, opacity:0.7 }}>COR</span>
+          </button>
+        )}
       </div>
     </div>
   )
@@ -232,7 +329,7 @@ export function DualNBackGame({ config, onComplete }) {
 
 /* ════════════════════════════════════════════
    SIMON
-   config: { color, numColors, intervalMs, duration }
+   config: { color, numColors, intervalMs, noRetry, duration }
 ════════════════════════════════════════════ */
 const SC_ALL = [
   {bg:'#EF4444',dim:'#280C0C',name:'VERMELHO'},
@@ -247,9 +344,10 @@ export function SequenceGame({ config, onComplete }) {
   const s = useScale()
   const numColors = config.numColors ?? 4
   const intervalMs = config.intervalMs ?? 680
+  const noRetry = config.noRetry ?? false
   const SC = SC_ALL.slice(0, numColors)
   const cols = numColors <= 4 ? 2 : 3
-  const btnSize = numColors <= 4 ? sp(138, s) : sp(90, s)
+  const btnW = numColors <= 4 ? sp(138, s) : sp(88, s)
 
   const [activeBtn,setActiveBtn]=useState(null); const [phase,setPhase]=useState('showing')
   const [lives,setLives]=useState(3); const [status,setStatus]=useState('Preparando...')
@@ -281,7 +379,14 @@ export function SequenceGame({ config, onComplete }) {
     if (newUser[pos]!==seqR.current[pos]) {
       livesR.current--; setLives(livesR.current); setStatus('Errou!')
       if (livesR.current<=0) { doneRef.current=true; setDone(true); return }
-      setTimeout(() => playRef.current(seqR.current), 800); return
+      if (noRetry) {
+        // Start fresh with a new 1-element sequence
+        const ns=[Math.floor(Math.random()*numColors)]; seqR.current=ns
+        setStatus('Sequência reiniciada!'); setTimeout(() => playRef.current(ns), 900)
+      } else {
+        setTimeout(() => playRef.current(seqR.current), 800)
+      }
+      return
     }
     userR.current=newUser
     if (newUser.length===seqR.current.length) {
@@ -301,10 +406,11 @@ export function SequenceGame({ config, onComplete }) {
         <Num label="Nível" value={maxLevel.current} color={config.color} />
         <div style={{ display:'flex', gap:5 }}>{[0,1,2].map(i=><span key={i} style={{ fontSize:18, opacity:i<lives?1:0.15, transition:'opacity 0.3s' }}>❤️</span>)}</div>
       </div>
+      {noRetry && <div style={{ fontSize:8, color:'#F59E0B', fontFamily:'JetBrains Mono', letterSpacing:1 }}>SEM RETRY — erro reinicia sequência</div>}
       <p style={{ color:phase==='input'?config.color:'#3A5470', fontSize:sp(12,s), fontFamily:'JetBrains Mono', fontWeight:phase==='input'?600:400, transition:'color 0.3s' }}>{status}</p>
-      <div style={{ display:'grid', gridTemplateColumns:`repeat(${cols}, ${btnSize}px)`, gap:sp(10,s) }}>
+      <div style={{ display:'grid', gridTemplateColumns:`repeat(${cols}, ${btnW}px)`, gap:sp(10,s) }}>
         {SC.map((c,idx) => (
-          <button key={idx} onClick={() => handleBtn(idx)} style={{ height:sp(numColors<=4?90:70,s), borderRadius:sp(16,s), background:activeBtn===idx?c.bg:c.dim, border:`2px solid ${activeBtn===idx?c.bg:'#182535'}`, transition:'all 0.12s', color:activeBtn===idx?'#fff':'#324050', fontSize:sp(10,s), fontWeight:700, letterSpacing:1, boxShadow:activeBtn===idx?`0 0 22px ${c.bg}50`:'none' }}>{c.name}</button>
+          <button key={idx} onClick={() => handleBtn(idx)} style={{ height:sp(numColors<=4?90:65,s), borderRadius:sp(14,s), background:activeBtn===idx?c.bg:c.dim, border:`2px solid ${activeBtn===idx?c.bg:'#182535'}`, transition:'all 0.12s', color:activeBtn===idx?'#fff':'#324050', fontSize:sp(10,s), fontWeight:700, letterSpacing:1, boxShadow:activeBtn===idx?`0 0 22px ${c.bg}50`:'none' }}>{c.name}</button>
         ))}
       </div>
     </div>
@@ -313,29 +419,31 @@ export function SequenceGame({ config, onComplete }) {
 
 /* ════════════════════════════════════════════
    STROOP
-   config: { color, numColors, duration }
+   config: { color, numColors, lang, duration }
+   lang: 'pt' | 'en' (words in English, options in Portuguese)
 ════════════════════════════════════════════ */
-const STR_ALL = [
-  {word:'VERMELHO',color:'#EF4444',id:0},
-  {word:'AZUL',    color:'#3B82F6',id:1},
-  {word:'VERDE',   color:'#22C55E',id:2},
-  {word:'AMARELO', color:'#EAB308',id:3},
-  {word:'LARANJA', color:'#F97316',id:4},
-  {word:'ROXO',    color:'#9333EA',id:5},
+const STR_PT = [
+  {word:'VERMELHO',wordEN:'RED',    color:'#EF4444',id:0},
+  {word:'AZUL',    wordEN:'BLUE',   color:'#3B82F6',id:1},
+  {word:'VERDE',   wordEN:'GREEN',  color:'#22C55E',id:2},
+  {word:'AMARELO', wordEN:'YELLOW', color:'#EAB308',id:3},
+  {word:'LARANJA', wordEN:'ORANGE', color:'#F97316',id:4},
+  {word:'ROXO',    wordEN:'PURPLE', color:'#9333EA',id:5},
 ]
 
-function newStroopTrial(n) {
-  const pool = STR_ALL.slice(0, n)
+function newStroopTrial(n, lang) {
+  const pool = STR_PT.slice(0, n)
   const w=Math.floor(Math.random()*n); let c; do { c=Math.floor(Math.random()*n) } while(c===w)
-  return { word:pool[w].word, colorVal:pool[c].color, correct:pool[c].id }
+  return { word: lang==='en' ? pool[w].wordEN : pool[w].word, colorVal:pool[c].color, correct:pool[c].id }
 }
 
 export function StroopGame({ config, onComplete }) {
   const s = useScale()
   const numColors = config.numColors ?? 4
-  const STR = STR_ALL.slice(0, numColors)
+  const lang = config.lang ?? 'pt'
+  const STR = STR_PT.slice(0, numColors)
 
-  const [trial,setTrial]=useState(() => newStroopTrial(numColors))
+  const [trial,setTrial]=useState(() => newStroopTrial(numColors, lang))
   const [correct,setCorrect]=useState(0); const [wrong,setWrong]=useState(0)
   const [t,setT]=useState(config.duration); const [done,setDone]=useState(false); const [fb,setFb]=useState(null)
   const rts=useRef([]); const cR=useRef(0); const wR=useRef(0); const tStart=useRef(Date.now()); const doneRef=useRef(false)
@@ -348,7 +456,7 @@ export function StroopGame({ config, onComplete }) {
   const handleAnswer = (id) => {
     if (doneRef.current) return; rts.current.push(Date.now()-tStart.current); const ok=id===trial.correct
     if (ok) { cR.current++; setCorrect(cR.current); setFb('hit') } else { wR.current++; setWrong(wR.current); setFb('miss') }
-    setTimeout(() => { if (!doneRef.current) { setFb(null); setTrial(newStroopTrial(numColors)); tStart.current=Date.now() } }, 240)
+    setTimeout(() => { if (!doneRef.current) { setFb(null); setTrial(newStroopTrial(numColors, lang)); tStart.current=Date.now() } }, 240)
   }
 
   useEffect(() => {
@@ -362,10 +470,10 @@ export function StroopGame({ config, onComplete }) {
   return (
     <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:sp(16,s) }}>
       <Bar pct={pct} color={config.color} timeLeft={t} />
+      {lang==='en' && <div style={{ fontSize:8, color:'#F59E0B', fontFamily:'JetBrains Mono', letterSpacing:1.5 }}>PALAVRA EM INGLÊS → CLIQUE EM PORTUGUÊS</div>}
       <div style={{ display:'flex', gap:24 }}><Num label="Corretos" value={correct} color={config.color} /><Num label="Erros" value={wrong} color="#EF4444" /></div>
-      <p style={{ color:'#3A5470', fontSize:sp(10,s), fontFamily:'JetBrains Mono' }}>Clique na COR DA TINTA</p>
       <div style={{ padding:`${sp(20,s)}px ${sp(28,s)}px`, background:'#0C1520', borderRadius:sp(20,s), width:'100%', textAlign:'center', border:`2px solid ${fb==='hit'?'#34D399':fb==='miss'?'#EF4444':'#1A2A3A'}`, transition:'border-color 0.2s' }}>
-        <span style={{ fontSize:sp(34,s), fontWeight:800, color:trial.colorVal, letterSpacing:sp(4,s) }}>{trial.word}</span>
+        <span style={{ fontSize:sp(34,s), fontWeight:800, color:trial.colorVal, letterSpacing:sp(3,s) }}>{trial.word}</span>
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:sp(8,s), width:'100%' }}>
         {STR.map(item => (
@@ -378,7 +486,7 @@ export function StroopGame({ config, onComplete }) {
 
 /* ════════════════════════════════════════════
    ALTERNÂNCIA — Task Switching (WCST-inspired)
-   config: { color, switchEvery, numColors, numShapes, duration }
+   config: { color, switchEvery, numColors, numShapes, threeRules, silent, duration }
 ════════════════════════════════════════════ */
 const TS_COLORS = [
   {id:0, name:'VERMELHO', hex:'#EF4444'},
@@ -388,19 +496,29 @@ const TS_COLORS = [
 ]
 const TS_SHAPES = ['●','■','▲','◆']
 const TS_SHAPE_NAMES = ['CÍRCULO','QUADRADO','TRIÂNGULO','LOSANGO']
-const RULES = ['COR','FORMA']
+// Number of sides per shape (for threeRules mode)
+const TS_SIDES = [0, 4, 3, 4]  // circle=0, square=4, triangle=3, diamond=4
+const TS_SIDES_LABELS = ['0','4','3','4']
+// Unique side counts for buttons
+const TS_UNIQUE_SIDES = [
+  { id: 0, label: '0 LADOS', value: 0 },
+  { id: 1, label: '3 LADOS', value: 3 },
+  { id: 2, label: '4 LADOS', value: 4 },
+]
 
 export function TaskSwitchingGame({ config, onComplete }) {
   const s = useScale()
-  const { switchEvery=6, numColors=3, numShapes=3, duration } = config
+  const { switchEvery=6, numColors=3, numShapes=3, threeRules=false, silent=false, duration } = config
   const colors = TS_COLORS.slice(0, numColors)
   const shapes = TS_SHAPES.slice(0, numShapes)
   const shapeNames = TS_SHAPE_NAMES.slice(0, numShapes)
+  const RULES = threeRules ? ['COR','FORMA','LADOS'] : ['COR','FORMA']
+  const ruleColors = { COR: '#22D3EE', FORMA: '#F472B6', LADOS: '#34D399' }
 
   const [rule, setRule] = useState(RULES[0])
   const [card, setCard] = useState(() => ({ c:0, sh:0 }))
-  const [phase, setPhase] = useState('playing')   // playing | ruleChange
-  const [fb, setFb] = useState(null)              // hit | miss | null
+  const [phase, setPhase] = useState('playing')
+  const [fb, setFb] = useState(null)
   const [ruleStreak, setRuleStreak] = useState(0)
   const [correct, setCorrect] = useState(0)
   const [total, setTotal] = useState(0)
@@ -408,7 +526,7 @@ export function TaskSwitchingGame({ config, onComplete }) {
   const [timeLeft, setTimeLeft] = useState(duration)
   const [done, setDone] = useState(false)
 
-  const stateRef = useRef({ rule:'COR', ruleStreak:0, correct:0, total:0, switches:0, done:false })
+  const stateRef = useRef({ rule:RULES[0], ruleIdx:0, ruleStreak:0, correct:0, total:0, switches:0, done:false })
 
   const nextCard = () => ({ c: Math.floor(Math.random()*numColors), sh: Math.floor(Math.random()*numShapes) })
 
@@ -421,33 +539,38 @@ export function TaskSwitchingGame({ config, onComplete }) {
     return () => clearInterval(timer)
   }, [])
 
+  const triggerSwitch = () => {
+    const r = stateRef.current
+    r.ruleStreak = 0; r.switches++; setSwitches(r.switches)
+    const nextIdx = (r.ruleIdx + 1) % RULES.length
+    r.ruleIdx = nextIdx
+    const newRule = RULES[nextIdx]
+    r.rule = newRule
+    if (!silent) {
+      setPhase('ruleChange')
+      setTimeout(() => { setRule(newRule); setCard(nextCard()); setFb(null); setPhase('playing'); setRuleStreak(0) }, 900)
+    } else {
+      setRule(newRule); setCard(nextCard()); setFb(null); setRuleStreak(0)
+    }
+  }
+
   const handleAnswer = (id) => {
     if (stateRef.current.done || phase !== 'playing') return
     const r = stateRef.current
-    const ok = rule === 'COR' ? id === card.c : id === card.sh
-    r.total++; setTotal(r.total)
+    let ok = false
+    if (rule === 'COR') ok = id === card.c
+    else if (rule === 'FORMA') ok = id === card.sh
+    else ok = id === TS_SIDES[card.sh]  // LADOS rule: match sides count
 
+    r.total++; setTotal(r.total)
     if (ok) {
       r.correct++; setCorrect(r.correct); setFb('hit')
       r.ruleStreak++
-      if (r.ruleStreak >= switchEvery) {
-        r.ruleStreak = 0; r.switches++
-        const newRule = rule === 'COR' ? 'FORMA' : 'COR'
-        r.rule = newRule
-        setPhase('ruleChange')
-        setSwitches(r.switches)
-        setTimeout(() => {
-          setRule(newRule); setCard(nextCard()); setFb(null); setPhase('playing')
-          setRuleStreak(0)
-        }, 900)
-      } else {
-        setRuleStreak(r.ruleStreak)
-        setTimeout(() => { setFb(null); setCard(nextCard()) }, 320)
-      }
+      if (r.ruleStreak >= switchEvery) triggerSwitch()
+      else { setRuleStreak(r.ruleStreak); setTimeout(() => { setFb(null); setCard(nextCard()) }, 320) }
     } else {
       r.ruleStreak = Math.max(0, r.ruleStreak - 1)
-      setRuleStreak(r.ruleStreak)
-      setFb('miss')
+      setRuleStreak(r.ruleStreak); setFb('miss')
       setTimeout(() => { setFb(null); setCard(nextCard()) }, 400)
     }
   }
@@ -456,28 +579,29 @@ export function TaskSwitchingGame({ config, onComplete }) {
     if (!done) return
     const r = stateRef.current
     const acc = r.total > 0 ? Math.round(r.correct / r.total * 100) : 0
-    onComplete({ points: acc, label: `${r.correct}/${r.total} corretos • ${r.switches} trocas`, detail: `${acc}% precisão` })
+    onComplete({ points: acc, label: `${r.correct}/${r.total} corretos • ${r.switches} trocas`, detail: `${acc}% precisão${silent ? ' • sem avisos' : ''}` })
   }, [done])
 
   const pct = ((duration - timeLeft) / duration) * 100
-  const isPlaying = phase === 'playing'
-  const ruleColor = rule === 'COR' ? '#22D3EE' : '#F472B6'
+  const ruleColor = ruleColors[rule] ?? '#22D3EE'
   const cardColor = colors[card.c]?.hex ?? '#999'
   const cardShape = shapes[card.sh]
+  const sidesCount = TS_SIDES[card.sh]
 
   return (
-    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:sp(12,s) }}>
+    <div className="fade" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:sp(10,s) }}>
       <Bar pct={pct} color={config.color} timeLeft={timeLeft} />
       <div style={{ display:'flex', gap:sp(20,s) }}>
         <Num label="Corretos" value={correct} color={config.color} />
         <Num label="Trocas" value={switches} color="#FCD34D" />
-        <Num label="Total" value={total} color="#5B7A9A" />
       </div>
 
       {/* Rule indicator */}
-      <div style={{ padding:`${sp(8,s)}px ${sp(20,s)}px`, borderRadius:sp(12,s), background:`${ruleColor}12`, border:`2px solid ${ruleColor}40`, transition:'all 0.3s', textAlign:'center' }}>
+      <div style={{ padding:`${sp(8,s)}px ${sp(20,s)}px`, borderRadius:sp(12,s), background:`${ruleColor}12`, border:`2px solid ${ruleColor}40`, transition:'all 0.3s', textAlign:'center', minWidth:180 }}>
         {phase === 'ruleChange' ? (
           <div className="fade" style={{ fontSize:sp(11,s), color:'#FCD34D', fontFamily:'JetBrains Mono', fontWeight:800, letterSpacing:2 }}>⚡ REGRA MUDOU!</div>
+        ) : silent && switches > 0 ? (
+          <div style={{ fontSize:sp(8,s), color:'#5B7A9A', fontFamily:'JetBrains Mono', letterSpacing:2 }}>DESCUBRA A REGRA...</div>
         ) : (
           <>
             <div style={{ fontSize:sp(8,s), color:`${ruleColor}90`, fontFamily:'JetBrains Mono', letterSpacing:2, marginBottom:2 }}>CLASSIFIQUE POR</div>
@@ -487,54 +611,59 @@ export function TaskSwitchingGame({ config, onComplete }) {
       </div>
 
       {/* Card */}
-      <div style={{
-        width:sp(120,s), height:sp(120,s), borderRadius:sp(22,s),
-        background:'#0C1520', border:`3px solid ${fb==='hit'?'#34D399':fb==='miss'?'#EF4444':'#2A3A4A'}`,
-        display:'flex', alignItems:'center', justifyContent:'center',
-        transition:'border-color 0.2s',
-        boxShadow: fb==='hit'?'0 0 24px #34D39930':fb==='miss'?'0 0 24px #EF444430':'none',
-      }}>
-        <span style={{ fontSize:sp(64,s), color:cardColor, lineHeight:1, transition:'color 0.1s' }}>{cardShape}</span>
+      <div style={{ width:sp(110,s), height:sp(110,s), borderRadius:sp(20,s), background:'#0C1520', border:`3px solid ${fb==='hit'?'#34D399':fb==='miss'?'#EF4444':'#2A3A4A'}`, display:'flex', alignItems:'center', justifyContent:'center', transition:'border-color 0.2s', boxShadow: fb==='hit'?'0 0 24px #34D39930':fb==='miss'?'0 0 24px #EF444430':'none' }}>
+        <span style={{ fontSize:sp(60,s), color:cardColor, lineHeight:1 }}>{cardShape}</span>
       </div>
 
-      {/* Progress to next switch */}
-      <div style={{ width:'100%', maxWidth:240 }}>
+      {/* Streak bar */}
+      <div style={{ width:'100%', maxWidth:220 }}>
         <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
-          <span style={{ fontSize:8, color:'#3A5470', fontFamily:'JetBrains Mono' }}>STREAK NA REGRA</span>
-          <span style={{ fontSize:8, color:ruleColor, fontFamily:'JetBrains Mono' }}>{ruleStreak}/{switchEvery}</span>
+          <span style={{ fontSize:7, color:'#3A5470', fontFamily:'JetBrains Mono' }}>{silent ? 'ACERTOS CONSECUTIVOS' : 'STREAK NA REGRA'}</span>
+          <span style={{ fontSize:7, color:ruleColor, fontFamily:'JetBrains Mono' }}>{ruleStreak}/{switchEvery}</span>
         </div>
         <div style={{ height:3, background:'#162030', borderRadius:2, overflow:'hidden' }}>
           <div style={{ width:`${(ruleStreak/switchEvery)*100}%`, height:'100%', background:ruleColor, transition:'width 0.2s' }} />
         </div>
       </div>
 
-      {/* Response buttons — change based on rule */}
-      {rule === 'COR' ? (
+      {/* Response buttons */}
+      {rule === 'COR' && (
         <div style={{ display:'flex', gap:sp(8,s), flexWrap:'wrap', justifyContent:'center' }}>
-          {colors.map((c) => (
-            <button key={c.id} onClick={() => handleAnswer(c.id)} disabled={!isPlaying} style={{ width:sp(58,s), height:sp(58,s), borderRadius:sp(14,s), background:`${c.hex}20`, border:`2px solid ${c.hex}50`, transition:'all 0.12s', display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <div style={{ width:sp(28,s), height:sp(28,s), borderRadius:'50%', background:c.hex }} />
+          {colors.map(c => (
+            <button key={c.id} onClick={() => handleAnswer(c.id)} style={{ width:sp(56,s), height:sp(56,s), borderRadius:sp(14,s), background:`${c.hex}20`, border:`2px solid ${c.hex}50`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <div style={{ width:sp(26,s), height:sp(26,s), borderRadius:'50%', background:c.hex }} />
             </button>
           ))}
         </div>
-      ) : (
+      )}
+      {rule === 'FORMA' && (
         <div style={{ display:'flex', gap:sp(8,s), flexWrap:'wrap', justifyContent:'center' }}>
           {shapes.map((sh, idx) => (
-            <button key={idx} onClick={() => handleAnswer(idx)} disabled={!isPlaying} style={{ width:sp(58,s), height:sp(58,s), borderRadius:sp(14,s), background:'#0C1520', border:'2px solid #2A3A4A', transition:'all 0.12s', fontSize:sp(28,s), color:'#C0D0E0', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <button key={idx} onClick={() => handleAnswer(idx)} style={{ width:sp(56,s), height:sp(56,s), borderRadius:sp(14,s), background:'#0C1520', border:'2px solid #2A3A4A', fontSize:sp(26,s), color:'#C0D0E0', display:'flex', alignItems:'center', justifyContent:'center' }}>
               {sh}
             </button>
           ))}
         </div>
       )}
+      {rule === 'LADOS' && (
+        <div style={{ display:'flex', gap:sp(8,s), flexWrap:'wrap', justifyContent:'center' }}>
+          {TS_UNIQUE_SIDES.map(side => (
+            <button key={side.id} onClick={() => handleAnswer(side.value)} style={{ padding:`${sp(10,s)}px ${sp(14,s)}px`, borderRadius:sp(12,s), background:'#0C1520', border:`2px solid ${ruleColor}30`, color:ruleColor, fontSize:sp(12,s), fontWeight:800, fontFamily:'JetBrains Mono' }}>
+              {side.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <p style={{ fontSize:sp(9,s), color:'#3A5470', fontFamily:'JetBrains Mono', textAlign:'center' }}>
-        {rule === 'COR' ? 'Clique na cor da figura' : 'Clique no formato da figura'}
+        {rule==='COR'?'Clique na cor da figura':rule==='FORMA'?'Clique no formato da figura':'Clique no número de lados'}
       </p>
     </div>
   )
 }
 
 /* ════════════════════════════════════════════
-   BOX BREATHING — cool-down, no levels
+   BOX BREATHING
 ════════════════════════════════════════════ */
 export function BreathingGame({ config, onComplete }) {
   const s = useScale()
