@@ -102,11 +102,9 @@ export default function Home({ profile, sessions, levels, onStartFull, onStartSi
                     <div style={{ fontSize:12, fontWeight:700, color:'#C0D0E0' }}>{ex.name}</div>
                     <div style={{ fontSize:8, color:'#3A5470', fontFamily:'JetBrains Mono', marginTop:1 }}>{diff.label} • {diff.duration}s</div>
                   </div>
-                  {/* Level badge */}
-                  <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-                    {[1,2,3].map(l => (
-                      <div key={l} style={{ width:8, height:8, borderRadius:'50%', background: l <= unlockedLevel ? (l === journeyLevel ? lc : lc+'60') : '#162030', transition:'background 0.3s' }} />
-                    ))}
+                  {/* Level dots */}
+                  <div style={{ display:'flex', alignItems:'center', gap:3 }}>
+                    {ex.difficulties.map((_, li) => { const lvl=li+1; const ds=ex.difficulties.length>3?6:8; return <div key={lvl} style={{ width:ds, height:ds, borderRadius:'50%', background: lvl<=unlockedLevel?(lvl===journeyLevel?lc:lc+'60'):'#162030', transition:'background 0.3s' }} /> })}
                   </div>
                   <span style={{ fontSize:11, color:ex.color, opacity:0.4 }}>→</span>
                 </button>
